@@ -1,0 +1,7 @@
+{
+	"TOKENAPI" : "YOUR TOKEN HERE",
+	"dbname" : "db name",
+	"user" : "username",
+	"password" : "password",
+	"host" : "hostaddress"
+}
