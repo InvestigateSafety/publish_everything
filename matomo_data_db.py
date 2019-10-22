@@ -1,5 +1,5 @@
 from time import strptime, strftime, mktime, gmtime
-import csv,os,requests,json,re
+import csv,os,requests,json,re,time
 from python_postgres import *
 from datetime import datetime, timezone
 
