@@ -5,7 +5,7 @@
 	"extensionId" : "101",
 	"username" : "phone_num",
 	"email" : "email",
-	"password" : "account_pwd",
+	"rc_password" : "account_pwd",
 	"dbname" : "dbname",
 	"user" : "username",
 	"password" : "db_pwd",

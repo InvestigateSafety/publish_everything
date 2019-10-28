@@ -17,7 +17,7 @@ class OPENRC():
 		RINGCENTRAL_SERVER = 'https://platform.devtest.ringcentral.com'
 
 		self.RINGCENTRAL_USERNAME = config['username']
-		self.RINGCENTRAL_PASSWORD = config['password']
+		self.RINGCENTRAL_PASSWORD = config['rc_password']
 		self.RINGCENTRAL_EXTENSION = config['extensionId']
 
 		self.rcsdk = SDK(RINGCENTRAL_CLIENTID, RINGCENTRAL_CLIENTSECRET, RINGCENTRAL_SERVER)
@@ -129,6 +129,7 @@ if __name__ == "__main__":
 	if rec.initialize():
 		rec.login()
 		data = rec.get_call_logs(with_rec=False)
-		rec.saving_to_csv(data)
-		rec.interfaceing_database(data)
-		rec.download_all_call_recordings()
+		if data:
+			rec.saving_to_csv(data)
+			rec.interfaceing_database(data)
+			rec.download_all_call_recordings()
