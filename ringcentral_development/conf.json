@@ -1,0 +1,13 @@
+{
+	"clientId" : "client_id",
+	"clientSecret" : "client_secret",
+	"serverURL" : "https://platform.devtest.ringcentral.com",
+	"extensionId" : "101",
+	"username" : "phone_num",
+	"email" : "email",
+	"password" : "account_pwd",
+	"dbname" : "dbname",
+	"user" : "username",
+	"password" : "db_pwd",
+	"host" : "db_address"
+}
