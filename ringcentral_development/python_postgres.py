@@ -2,6 +2,7 @@ import psycopg2
 from psycopg2 import sql
 from datetime import datetime
 import json
+from psycopg2.extras import json, Json
 
 class POSTGRESAPI:
 
@@ -17,7 +18,7 @@ class POSTGRESAPI:
 			return False
 
 		connect_str = ('dbname={} user={} host={} password={}'.format(dbname,user,host,password))
-		print ("Connecting to database: {}".format( connect_str))
+		print ("Connecting to Database.....")
 
 		self.conn = psycopg2.connect(connect_str)
 		self.cur = self.conn.cursor()
@@ -36,6 +37,12 @@ class POSTGRESAPI:
 
 		return isIPExists
 
+	def updating_json_data(self,call_id,session_id,json_data):
+		command = "UPDATE ringcentral_communication_log set transcription_json = %s where call_id like '%s' and sessionid like '%s';" % (Json(json_data),call_id,session_id)
+		#print(command)
+		self.cur.execute(command)
+
+		return True
 
 	def insert_data(self,uri,call_id,sessionId,startTime,duration,call_type,direction,action,
 					result,to_name,to_phoneNumber,to_extensionId,to_extensionNumber,to_location,

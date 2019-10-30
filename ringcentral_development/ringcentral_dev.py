@@ -1,7 +1,8 @@
 import json,urllib.request,os
 from ringcentral import SDK
 from postgresql_interface import *
-
+from aws_wasabi_interface import *
+import urllib.request
 
 class OPENRC():
 	def __init__(self):
@@ -9,21 +10,43 @@ class OPENRC():
 		self.rcsdk = ''
 		self.platform = ''
 		self.db_handle = CINSERTDB()
+		self.recording_filenames = {}
+		self.audio_file_folder = './audio_files/'
 
 	def initialize(self):
-		config = self.read_json_file(self.configuration_filename)
-		RINGCENTRAL_CLIENTID = config['clientId']
-		RINGCENTRAL_CLIENTSECRET = config['clientSecret']
+		if not self.is_file_exist(self.configuration_filename):
+			print("[ERROR] configuration file not present")
+			return False
+
+		self.config = self.read_json_file(self.configuration_filename)
+
+		#ringcentral credentials
+		RINGCENTRAL_CLIENTID = self.config['clientId']
+		RINGCENTRAL_CLIENTSECRET = self.config['clientSecret']
 		RINGCENTRAL_SERVER = 'https://platform.devtest.ringcentral.com'
 
-		self.RINGCENTRAL_USERNAME = config['username']
-		self.RINGCENTRAL_PASSWORD = config['rc_password']
-		self.RINGCENTRAL_EXTENSION = config['extensionId']
+		self.RINGCENTRAL_USERNAME = self.config['username']
+		self.RINGCENTRAL_PASSWORD = self.config['rc_password']
+		self.RINGCENTRAL_EXTENSION = self.config['extensionId']
+
+		#aws credentials
+		self.AWS_ACCESS_KEY = self.config['AWS_ACCESS_KEY']
+		self.AWS_SECRET_KEY = self.config['AWS_SECRET_KEY']
+
+		#wasabi credentials
+		self.WASABI_ACCESS_KEY = self.config['WASABI_ACCESS_KEY']
+		self.WASABI_SECRET_KEY = self.config['WASABI_SECRET_KEY']
 
 		self.rcsdk = SDK(RINGCENTRAL_CLIENTID, RINGCENTRAL_CLIENTSECRET, RINGCENTRAL_SERVER)
 		self.platform = self.rcsdk.platform()
 	
 		return True
+
+	def is_file_exist(self,filename):
+		if os.path.exists(filename):
+			return True
+		else:
+			return False
 
 	def checking_folder_existence(self,dest_dir):
 		if not os.path.exists(dest_dir):
@@ -50,13 +73,13 @@ class OPENRC():
 
 	def login(self):
 		try:
-			print("Loging in.......")
+			print("Signing in ringcentral account....")
 			result = self.platform.login(self.RINGCENTRAL_USERNAME, self.RINGCENTRAL_EXTENSION, self.RINGCENTRAL_PASSWORD)
 			#print(result.json_dict())
 			#access_token =  result.json_dict()['access_token']
 			return True
 		except:
-			print("LOGIN ERROR....")
+			print("[Error]Signing in error....")
 			return False
 
 
@@ -91,25 +114,36 @@ class OPENRC():
 
 	def download_single_call_recording(self,recording_id):
 		print("Checking recording calls...")
-		audio_file_folder = './audio_files/'
-		self.checking_folder_existence(audio_file_folder)
+
+		self.checking_folder_existence(self.audio_file_folder)
 		if recording_id:
 			resp = self.platform.get(f'/restapi/v1.0/account/~/recording/{recording_id}/content')
 			metadata = self.get_call_recording_metadata(resp)
-			file_name = audio_file_folder +  metadata.getlist('Content-Disposition')[0].split('=')[1]
+			file_name = self.audio_file_folder +  metadata.getlist('Content-Disposition')[0].split('=')[1]
 			file_size = int(metadata.getheaders("Content-Length")[0])
 			print ("Downloading: %s Bytes: %s" % (file_name, file_size))
 			audio_file= open(file_name,"wb")
 			audio_file.write(resp.body())
 			audio_file.close()
+			print ("Finished Downloading: %s Bytes: %s" % (file_name, file_size))
+			print()
+			return file_name 
+
 
 	def download_all_call_recordings(self):
 		data = self.get_call_logs()
+		main_list = []
 		#print(json.dumps(data,indent=4))
 		for record in range(len(data['records'])):
+			sub_dict = {}
+			sub_dict['call_id'] = data['records'][record]['id']
+			sub_dict['session_id'] = data['records'][record]['sessionId']
 			recording_id = data['records'][record]['recording']['id']
 			content_uri = data['records'][record]['recording']['contentUri']
-			self.download_single_call_recording(recording_id)
+			sub_dict['file_name'] = self.download_single_call_recording(recording_id)
+			main_list.append(sub_dict)
+
+		self.recording_filenames['data'] = main_list
 
 
 	def interfaceing_database(self,data):
@@ -121,15 +155,92 @@ class OPENRC():
 		for record in data['records']:
 			self.db_handle.json_to_csv(record,csv_filename)
 
+	def do_transcribe(self):
+		aws = CTRANSCRIBE()
+		if aws.initialize('aws',self.AWS_ACCESS_KEY,self.AWS_SECRET_KEY):
+			pass
 
+			if not aws.is_bucket_present(self.config['current_bucket_name']):
+				print(self.config['current_bucket_name'] , " not present, so creating one.")
+				aws.create_bucket(self.config['current_bucket_name'])
+
+			contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
+
+			for file in self.recording_filenames['data']:
+				if file['file_name'] not in contents:
+					print("Uploading file: ", file['file_name'], " on AWS-S3")
+					aws.upload_file(file['file_name'],self.config['current_bucket_name'],file['file_name'].replace('./audio','audio'))
+				else:
+					print(file, " already present on AWS S3 bucket: ", self.config['current_bucket_name'])
+
+			all_jobs = aws.list_jobs()
+			current_job_name = "job_"
+			job_names_list = []
+			for job in all_jobs['TranscriptionJobSummaries']:
+				if current_job_name in job['TranscriptionJobName']:
+					try:
+						job_names_list.append(int(job['TranscriptionJobName'].replace(current_job_name,'')))
+					except:
+						pass
+
+			if len(job_names_list) > 0:
+				current_job_name += str(max(job_names_list))
+			else:
+				current_job_name += '0'
+
+			for file in range(len(self.recording_filenames['data'])):
+
+				job_uri = "https://" + self.config['current_bucket_name'] + ".s3.us-east-2.amazonaws.com/" +self.recording_filenames['data'][file]['file_name'].replace('./audio','audio')
+
+				current_job_name =  "job_" + str(int(current_job_name.replace('job_','')) + 1)
+
+				print("Current Job Name: ", current_job_name)
+				print()
+				response = aws.do_transcribe(current_job_name,job_uri)
+				print("transcibe job finished for: ", current_job_name)
+				print()
+			
+				print('Downloading output json file: ', self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+				urllib.request.urlretrieve(response['TranscriptionJob']['Transcript']['TranscriptFileUri'], self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+
+				json_data =self.read_json_file(self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+
+				print("Updating the json data in the Database with call_id: ", self.recording_filenames['data'][file]['call_id'], " and session_id: ", self.recording_filenames['data'][file]['session_id'])
+				self.db_handle.updating_json_data(self.recording_filenames['data'][file]['call_id'], self.recording_filenames['data'][file]['session_id'], json_data)
+
+				print("Deleting file from AWS server: ", self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+				aws.deleting_file_from_aws(self.config['current_bucket_name'], self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+				print()
+
+			self.db_handle.close_api()
+
+		if aws.initialize('wasabi',self.WASABI_ACCESS_KEY,self.WASABI_SECRET_KEY):
+
+
+			if not aws.is_bucket_present(self.config['current_bucket_name']):
+				print(self.config['current_bucket_name'] , " not present, so creating one.")
+				aws.create_bucket(self.config['current_bucket_name'])
+
+			contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
+
+			for file in self.recording_filenames['data']:
+				if file['file_name'] not in contents:
+					print("Uploading file: ", file['file_name'], " on WASABI SERVER")
+					aws.upload_file(file['file_name'],self.config['current_bucket_name'],file['file_name'].replace('./audio','audio'))
+				else:
+					print(file, " already present on wasabit S3 bucket: ", self.config['current_bucket_name'])
+		
 
 
 if __name__ == "__main__":
 	rec = OPENRC()
-	if rec.initialize():
+	if rec.initialize():		
 		rec.login()
 		data = rec.get_call_logs(with_rec=False)
 		if data:
 			rec.saving_to_csv(data)
 			rec.interfaceing_database(data)
 			rec.download_all_call_recordings()
+			rec.do_transcribe()
+			
+

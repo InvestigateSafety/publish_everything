@@ -9,5 +9,9 @@
 	"dbname" : "dbname",
 	"user" : "username",
 	"password" : "db_pwd",
-	"host" : "db_address"
+	"host" : "db_address",
+	"AWS_ACCESS_KEY" : "aws_access_key",
+	"AWS_SECRET_KEY" : "aws_secret_key",	
+	"WASABI_ACCESS_KEY" : "wasabi_access_key",
+	"WASABI_SECRET_KEY" : "wasabi_secret_key"
 }
