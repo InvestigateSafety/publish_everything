@@ -162,7 +162,7 @@ class OPENRC():
 		aws = CTRANSCRIBE()
 		procesed_filename = 'transcibed.json'
 		if self.is_file_exist(procesed_filename):
-			already_transcribe_data = procesed_filename
+			already_transcribe_data = self.read_json_file(procesed_filename)
 		else:
 			already_transcribe_data = []
 
@@ -240,7 +240,7 @@ class OPENRC():
 
 
 					if self.is_file_exist(procesed_filename):
-						already_transcribe_data_new = procesed_filename
+						already_transcribe_data_new = self.read_json_file(procesed_filename)
 					else:
 						already_transcribe_data_new = []
 					already_transcribe_data_new.append(self.recording_filenames['data'][file]['file_name'])
