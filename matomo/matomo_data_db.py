@@ -65,7 +65,7 @@ class CINSERTDB():
                 try:
                     if self.debug:
                         print("Current Data Processing: ", i , ' / ', len(visits_data))
-                    print(json.dumps(visits_data[i],indent=4))
+                    #print(json.dumps(visits_data[i],indent=4))
                     ip_whois = ''
                     org = ''
                     org_domain = ''
