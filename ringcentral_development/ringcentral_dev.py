@@ -1,4 +1,4 @@
-import json,urllib.request,os
+import json,urllib.request,os,time
 from ringcentral import SDK
 from postgresql_interface import *
 from aws_wasabi_interface import *
@@ -70,6 +70,9 @@ class OPENRC():
 	    with open(filename, 'w') as outfile:
 	        json.dump(data, outfile,indent=4)
 
+
+	def get_time_stamp(self):
+		return time.strftime('%Y-%m-%d')
 
 	def login(self):
 		try:
@@ -157,90 +160,109 @@ class OPENRC():
 
 	def do_transcribe(self):
 		aws = CTRANSCRIBE()
-		if aws.initialize('aws',self.AWS_ACCESS_KEY,self.AWS_SECRET_KEY):
-			pass
+		procesed_filename = 'transcibed.json'
+		if self.is_file_exist(procesed_filename):
+			already_transcribe_data = procesed_filename
+		else:
+			already_transcribe_data = []
 
-			if not aws.is_bucket_present(self.config['current_bucket_name']):
-				print(self.config['current_bucket_name'] , " not present, so creating one.")
-				aws.create_bucket(self.config['current_bucket_name'])
+		for file in range(len(self.recording_filenames['data'])):
 
-			contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
+			if self.recording_filenames['data'][file]['file_name'] not in already_transcribe_data:
 
-			for file in self.recording_filenames['data']:
-				if file['file_name'] not in contents:
-					print("Uploading file: ", file['file_name'], " on AWS-S3")
-					aws.upload_file(file['file_name'],self.config['current_bucket_name'],file['file_name'].replace('./audio','audio'))
-				else:
-					print(file, " already present on AWS S3 bucket: ", self.config['current_bucket_name'])
+				if aws.initialize('aws',self.AWS_ACCESS_KEY,self.AWS_SECRET_KEY):
+					pass
 
-			all_jobs = aws.list_jobs()
-			current_job_name = "job_"
-			job_names_list = []
-			for job in all_jobs['TranscriptionJobSummaries']:
-				if current_job_name in job['TranscriptionJobName']:
-					try:
-						job_names_list.append(int(job['TranscriptionJobName'].replace(current_job_name,'')))
-					except:
-						pass
+					if not aws.is_bucket_present(self.config['current_bucket_name']):
+						print(self.config['current_bucket_name'] , " not present, so creating one.")
+						aws.create_bucket(self.config['current_bucket_name'])
 
-			if len(job_names_list) > 0:
-				current_job_name += str(max(job_names_list))
+					contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
+
+					if self.recording_filenames['data'][file]['file_name'] not in contents:
+						print("Uploading file: ", self.recording_filenames['data'][file]['file_name'], " on AWS-S3")
+						aws.upload_file(self.recording_filenames['data'][file]['file_name'],self.config['current_bucket_name'],self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+					else:
+						print(self.recording_filenames['data'][file], " already present on AWS S3 bucket: ", self.config['current_bucket_name'])
+
+					all_jobs = aws.list_jobs()
+					current_job_name = "job_"
+					job_names_list = []
+					for job in all_jobs['TranscriptionJobSummaries']:
+						if current_job_name in job['TranscriptionJobName']:
+							try:
+								job_names_list.append(int(job['TranscriptionJobName'].replace(current_job_name,'')))
+							except:
+								pass
+
+					if len(job_names_list) > 0:
+						current_job_name += str(max(job_names_list))
+					else:
+						current_job_name += '0'
+
+					#for file in range(len(self.recording_filenames['data'])):
+
+					job_uri = "https://" + self.config['current_bucket_name'] + ".s3.us-east-2.amazonaws.com/" +self.recording_filenames['data'][file]['file_name'].replace('./audio','audio')
+
+					current_job_name =  "job_" + str(int(current_job_name.replace('job_','')) + 1)
+
+					print("Current Job Name: ", current_job_name)
+					print()
+					response = aws.do_transcribe(current_job_name,job_uri)
+					print("transcibe job finished for: ", current_job_name)
+					print()
+				
+					print('Downloading output json file: ', self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+					urllib.request.urlretrieve(response['TranscriptionJob']['Transcript']['TranscriptFileUri'], self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+
+					json_data =self.read_json_file(self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
+
+					print("Updating the json data in the Database with call_id: ", self.recording_filenames['data'][file]['call_id'], " and session_id: ", self.recording_filenames['data'][file]['session_id'])
+					self.db_handle.updating_json_data(self.recording_filenames['data'][file]['call_id'], self.recording_filenames['data'][file]['session_id'], json_data)
+
+					print("Deleting file from AWS server: ", self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+					aws.deleting_file_from_aws(self.config['current_bucket_name'], self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+					print()
+
+				if aws.initialize('wasabi',self.WASABI_ACCESS_KEY,self.WASABI_SECRET_KEY):
+
+					if not aws.is_bucket_present(self.config['current_bucket_name']):
+						print(self.config['current_bucket_name'] , " not present, so creating one.")
+						aws.create_bucket(self.config['current_bucket_name'])
+
+					contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
+
+					if self.recording_filenames['data'][file]['file_name'] not in contents:
+						print("Uploading file: ", self.recording_filenames['data'][file]['file_name'], " on WASABI SERVER")
+						aws.upload_file(self.recording_filenames['data'][file]['file_name'],self.config['current_bucket_name'],self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
+					else:
+						print(file, " already present on wasabit S3 bucket: ", self.config['current_bucket_name'])
+
+
+					if self.is_file_exist(procesed_filename):
+						already_transcribe_data_new = procesed_filename
+					else:
+						already_transcribe_data_new = []
+						already_transcribe_data_new.append(self.recording_filenames['data'][file]['file_name'])
+
+					self.write_json_file(already_transcribe_data_new,procesed_filename)
 			else:
-				current_job_name += '0'
-
-			for file in range(len(self.recording_filenames['data'])):
-
-				job_uri = "https://" + self.config['current_bucket_name'] + ".s3.us-east-2.amazonaws.com/" +self.recording_filenames['data'][file]['file_name'].replace('./audio','audio')
-
-				current_job_name =  "job_" + str(int(current_job_name.replace('job_','')) + 1)
-
-				print("Current Job Name: ", current_job_name)
-				print()
-				response = aws.do_transcribe(current_job_name,job_uri)
-				print("transcibe job finished for: ", current_job_name)
-				print()
-			
-				print('Downloading output json file: ', self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
-				urllib.request.urlretrieve(response['TranscriptionJob']['Transcript']['TranscriptFileUri'], self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
-
-				json_data =self.read_json_file(self.recording_filenames['data'][file]['file_name'].replace('.mp3','.json'))
-
-				print("Updating the json data in the Database with call_id: ", self.recording_filenames['data'][file]['call_id'], " and session_id: ", self.recording_filenames['data'][file]['session_id'])
-				self.db_handle.updating_json_data(self.recording_filenames['data'][file]['call_id'], self.recording_filenames['data'][file]['session_id'], json_data)
-
-				print("Deleting file from AWS server: ", self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
-				aws.deleting_file_from_aws(self.config['current_bucket_name'], self.recording_filenames['data'][file]['file_name'].replace('./audio','audio'))
-				print()
-
-			self.db_handle.close_api()
-
-		if aws.initialize('wasabi',self.WASABI_ACCESS_KEY,self.WASABI_SECRET_KEY):
-
-
-			if not aws.is_bucket_present(self.config['current_bucket_name']):
-				print(self.config['current_bucket_name'] , " not present, so creating one.")
-				aws.create_bucket(self.config['current_bucket_name'])
-
-			contents = aws.listing_bucket_contents(self.config['current_bucket_name'])
-
-			for file in self.recording_filenames['data']:
-				if file['file_name'] not in contents:
-					print("Uploading file: ", file['file_name'], " on WASABI SERVER")
-					aws.upload_file(file['file_name'],self.config['current_bucket_name'],file['file_name'].replace('./audio','audio'))
-				else:
-					print(file, " already present on wasabit S3 bucket: ", self.config['current_bucket_name'])
+				print("already transcrobed: ", self.recording_filenames['data'][file]['file_name'])
 		
-
+		self.db_handle.close_api()
 
 if __name__ == "__main__":
 	rec = OPENRC()
-	if rec.initialize():		
-		rec.login()
-		data = rec.get_call_logs(with_rec=False)
-		if data:
-			rec.saving_to_csv(data)
-			rec.interfaceing_database(data)
-			rec.download_all_call_recordings()
-			rec.do_transcribe()
+	while 1:
+		if rec.initialize():		
+			rec.login()
+			data = rec.get_call_logs(with_rec=False)
+			if data:
+				rec.saving_to_csv(data)
+				rec.interfaceing_database(data)
+				rec.download_all_call_recordings()
+				rec.do_transcribe()
+		print("sleeping for 10 seconds")
+		time.sleep(10)
 			
 
