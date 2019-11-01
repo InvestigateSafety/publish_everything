@@ -243,7 +243,7 @@ class OPENRC():
 						already_transcribe_data_new = procesed_filename
 					else:
 						already_transcribe_data_new = []
-						already_transcribe_data_new.append(self.recording_filenames['data'][file]['file_name'])
+					already_transcribe_data_new.append(self.recording_filenames['data'][file]['file_name'])
 
 					self.write_json_file(already_transcribe_data_new,procesed_filename)
 			else:
